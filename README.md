@@ -37,7 +37,7 @@ Disadvantages over the existing toolchain:
 * We're using one Spack installation, meaning that packages shared between the
   environments will be built only once.
 * Spack only builds the required packages, not CP2K itself
-* To re-use the complex build requirements even at the top-level of dependencies,
+* <s>To re-use the complex build requirements even at the top-level of dependencies,
   we are installing the dependencies by using Spack's "recipe" for building CP2K.
   Ex.:
 
@@ -45,4 +45,13 @@ Disadvantages over the existing toolchain:
 
   Should we have to override Spack's CP2K package (for new packages or  we can provide a custom repository
   to override it. There is also the possibility to limit ourselves to a specific version/tag
-  of Spack for releases.
+  of Spack for releases.</s>
+  Unfortunately only install dependencies leaves the environment in a rather peculiar state:
+  While the dependencies are correctly installed the `spec` contained says `cp2k` which means that a
+  `spack install` in that dir will then install the CP2K package itself and other commands like `spack env loads`
+  fail because the `cp2k` is not yet available. Therefore:
+* We provide a repository overlay registered in each environment which contains a stripped-down version of
+  the Spack CP2K package called `cp2k-deps`. This should be kept in sync with Spack CP2K package wrt to
+  dependency specification and `arch/` file generation. The difference to the `cp2k` package is that this
+  package does not pull any sources and only installs an `arch/` file. This way we can even re-use the `arch/`
+  file generation already done in Spack.

@@ -73,9 +73,25 @@ def check_spack(spack_path=SPACK_PATH):
         ) from None
 
 
+def get_spack_arch(spack_path=SPACK_PATH):
+    """Get the Spack arch tuple"""
+    try:
+        command = [str(spack_path), "arch"]
+        ret = subprocess.run(command, check=True, capture_output=True, encoding="utf-8")
+    except subprocess.CalledProcessError as exc:
+        raise CommandError(
+            "the Spack installation seems to be broken, calling 'spack help' failed",
+            " ".join(command),
+            exc.stdout,
+            exc.stderr,
+        ) from None
+
+    return ret.stdout.strip()
+
+
 def install_spack_env(envdir, features, omp, mpi, spack_path=SPACK_PATH):
     """
-    Install cp2k@develop in the given Spack environment with the required features.
+    Install cp2k@toolchain in the given Spack environment with the required features.
     :param envdir: path where the Spack env should be created, resp. used
     :param features: Spack spec for the cp2k package, like: +sirius ~cuda_fft
     :param omp: Adds `+openmp` to the Spack spec if True, `~openmp` otherwise.
@@ -83,27 +99,41 @@ def install_spack_env(envdir, features, omp, mpi, spack_path=SPACK_PATH):
     :param spack_path: Path to the Spack binary to be used
     """
 
-    if not (envdir / "spack.yaml").exists():
-        try:
-            command = [str(spack_path), "env", "create", "--dir", str(envdir)]
-            subprocess.run(command, check=True, capture_output=True, encoding="utf-8")
-        except subprocess.CalledProcessError as exc:
-            raise CommandError(
-                f"could not create the Spack environment at '{envdir}'",
-                " ".join(command),
-                exc.stdout,
-                exc.stderr,
-            ) from None
-
-    spec = ["cp2k@develop"]
+    spec = ["cp2k-deps"]
     spec += ["+openmp"] if omp else ["~openmp"]
     spec += ["+mpi"] if mpi else ["~mpi"]
     spec += features  # TODO: validate features
 
-    print(f"Installing dependencies for '{' '.join(spec)}' in '{envdir}'")
+    if not envdir.exists():
+        envdir.mkdir(parents=True)
+
+    spack_yaml_path = envdir / "spack.yaml"
+    if not spack_yaml_path.exists():  # or should we always overwrite it?
+
+        print(
+            f"Creating environment configuration for '{' '.join(spec)}' in '{envdir}'"
+        )
+        spack_yaml_path.write_text(
+            f"""\
+# This is a Spack Environment file.
+#
+# It describes a set of packages to be installed, along with
+# configuration settings.
+spack:
+  # add package specs to the `specs` list
+  specs: ["{" ".join(spec)}"]
+  repos: ["{SCRIPT_DIR}/repo"]
+""",
+            encoding="utf-8",
+        )
+
+    print(f"Installing environment with '{' '.join(spec)}' in '{envdir}'")
 
     try:
-        command = [str(spack_path), "install"] + spec
+        command = [
+            str(spack_path),
+            "install",
+        ]  # the install here pulls the spec from the env. config
         # running Spack in the envdir will automatically enable the environment
         # do not capture the output here to make sure the user sees something, because this takes long
         subprocess.run(command, check=True, cwd=envdir, encoding="utf-8")
@@ -114,6 +144,25 @@ def install_spack_env(envdir, features, omp, mpi, spack_path=SPACK_PATH):
             "",
             "",
         ) from None
+
+
+def setup_arch_symlink(arch_dir, spack_arch, spack_env_dir, spack_env):
+    """TODO: needs some improvement"""
+    symdest = arch_dir / f"{spack_arch}.{spack_env}"
+    symtarget = (
+        spack_env_dir
+        / f"{spack_env}"
+        / ".spack-env"
+        / "view"
+        / "share"
+        / "data"
+        / f"{spack_arch}-gcc.{spack_env}"
+    )
+
+    if symdest.exists():
+        symdest.unlink()
+
+    symdest.symlink_to(symtarget)
 
 
 def install():
@@ -143,25 +192,36 @@ def install():
         ensure_spack_installation()
         check_spack()  # TODO: give the user the possibility to use an already installed spack
 
+        spec = args.features.copy()
+
+        # if the user does not wish any MPI support, make sure we disable MPI also for some of the
+        # dependencies which are not controlled by the package itself and also only for packages
+        # which provide multiple sets of the libraries
+        if not args.mpi:
+            # fftw always builds the non-MPI variant and contains a second set of built with MPI
+            spec += ["^fftw~mpi"]
+
+        arch_dir = SCRIPT_DIR / "arch"
+        if not arch_dir.exists():
+            arch_dir.mkdir()
+
+        spack_arch = get_spack_arch()
+
         # this is the default environment and always gets built
-        install_spack_env(
-            SCRIPT_DIR / "envs" / "sopt", args.features, omp=False, mpi=False
-        )
+        install_spack_env(SCRIPT_DIR / "envs" / "sopt", spec, omp=False, mpi=False)
+        setup_arch_symlink(arch_dir, spack_arch, SCRIPT_DIR / "envs", "sopt")
 
         if args.openmp:
-            install_spack_env(
-                SCRIPT_DIR / "envs" / "ssmp", args.features, omp=True, mpi=False
-            )
+            install_spack_env(SCRIPT_DIR / "envs" / "ssmp", spec, omp=True, mpi=False)
+            setup_arch_symlink(arch_dir, spack_arch, SCRIPT_DIR / "envs", "ssmp")
 
         if args.mpi:
-            install_spack_env(
-                SCRIPT_DIR / "envs" / "popt", args.features, omp=False, mpi=True
-            )
+            install_spack_env(SCRIPT_DIR / "envs" / "popt", spec, omp=False, mpi=True)
+            setup_arch_symlink(arch_dir, spack_arch, SCRIPT_DIR / "envs", "popt")
 
         if args.mpi and args.openmp:
-            install_spack_env(
-                SCRIPT_DIR / "envs" / "psmp", args.features, omp=True, mpi=True
-            )
+            install_spack_env(SCRIPT_DIR / "envs" / "psmp", spec, omp=True, mpi=True)
+            setup_arch_symlink(arch_dir, spack_arch, SCRIPT_DIR / "envs", "psmp")
 
     except CommandError as exc:
         print(
