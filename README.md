@@ -13,6 +13,11 @@ Disadvantages over the existing toolchain:
 
 * By default everything except a system compiler is installed by Spack. This includes things like OpenSSL, Python.
 
+## Requirements
+
+* Python 3.7+
+* git
+
 ## TODOs
 
 * [ ] generate CP2K `arch/` files. Ideal would be if they could activate the corresponding environment automatically.
