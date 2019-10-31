@@ -31,24 +31,6 @@ def argparse_add_bool_arg(parser, name, default, helptxt):
     parser.set_defaults(**{dname: default})
 
 
-def argparse_add_with_arg(parser, name, default, helptxt, metavar=None):
-    """Add --with-<name> .../--without-<name> arguments"""
-    dname = name.replace("-", "_")
-    group = parser.add_mutually_exclusive_group(required=False)
-    group.add_argument(
-        "--with-{}".format(name),
-        dest=dname,
-        nargs="?",
-        const=default,
-        metavar=metavar,
-        help="Make sure all dependencies for building MPI-parallel CP2K with the specified provider are installed",
-    )
-    group.add_argument(
-        "--without-{}".format(name), dest=dname, action="store_const", const="off"
-    )
-    parser.set_defaults(**{dname: default})
-
-
 def ensure_spack_installation(spack_dir=SPACK_DIR):
     """Fetch Spack if required and check whether the checkout is ok"""
 
@@ -78,7 +60,7 @@ def ensure_spack_installation(spack_dir=SPACK_DIR):
 
 
 def check_spack(spack_path=SPACK_PATH):
-    """Check that the given executable runs"""
+    """Check that the executable on the given path runs"""
     try:
         command = [str(spack_path), "help"]
         subprocess.run(command, check=True, capture_output=True, encoding="utf-8")
@@ -92,6 +74,15 @@ def check_spack(spack_path=SPACK_PATH):
 
 
 def install_spack_env(envdir, features, omp, mpi, spack_path=SPACK_PATH):
+    """
+    Install cp2k@develop in the given Spack environment with the required features.
+    :param envdir: path where the Spack env should be created, resp. used
+    :param features: Spack spec for the cp2k package, like: +sirius ~cuda_fft
+    :param omp: Adds `+openmp` to the Spack spec if True, `~openmp` otherwise.
+    :param mpi: Adds `+mpi` to the Spack spec if True, `~mpi` otherwise.
+    :param spack_path: Path to the Spack binary to be used
+    """
+
     if not (envdir / "spack.yaml").exists():
         try:
             command = [str(spack_path), "env", "create", "--dir", str(envdir)]
@@ -126,6 +117,7 @@ def install_spack_env(envdir, features, omp, mpi, spack_path=SPACK_PATH):
 
 
 def install():
+    """The basic entrypoint for this script"""
     parser = argparse.ArgumentParser(
         description="Generate a Spack environment configuration for the desired CP2K configuration",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
