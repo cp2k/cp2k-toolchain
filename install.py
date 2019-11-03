@@ -31,133 +31,140 @@ def argparse_add_bool_arg(parser, name, default, helptxt):
     parser.set_defaults(**{dname: default})
 
 
-def ensure_spack_installation(spack_dir=SPACK_DIR):
-    """Fetch Spack if required and check whether the checkout is ok"""
+class SpackCmd:
+    def __init__(self, spack_path=SPACK_PATH):
+        self._spack_path = spack_path
+        self._arch = None
 
-    if not spack_dir.exists():
-        # need Git for now
+    @staticmethod
+    def ensure_installation(spack_dir=SPACK_DIR):
+        """Fetch Spack if required and check whether the checkout is ok"""
+
+        if not spack_dir.exists():
+            # need Git for now
+            try:
+                command = [
+                    "git",
+                    "clone",
+                    "--depth=1",
+                    "https://github.com/spack/spack.git",
+                    str(spack_dir),
+                ]
+                subprocess.run(
+                    command, check=True, capture_output=True, encoding="utf-8"
+                )
+            except subprocess.CalledProcessError as exc:
+                raise CommandError(
+                    "cloning the Spack repository failed",
+                    " ".join(command),
+                    exc.stdout,
+                    exc.stderr,
+                ) from None
+
+        if not (spack_dir / "bin" / "spack").exists():
+            raise ConfigurationError(
+                f"the Spack directory '{spack_dir}' exists, but the executable 'bin/spack' could not be found"
+            )
+
+    def check(self):
+        """Check that the executable on the given path runs"""
         try:
-            command = [
-                "git",
-                "clone",
-                "--depth=1",
-                "https://github.com/spack/spack.git",
-                str(spack_dir),
-            ]
+            command = [str(self._spack_path), "help"]
             subprocess.run(command, check=True, capture_output=True, encoding="utf-8")
         except subprocess.CalledProcessError as exc:
             raise CommandError(
-                "cloning the Spack repository failed",
+                "the Spack installation seems to be broken, calling 'spack help' failed",
                 " ".join(command),
                 exc.stdout,
                 exc.stderr,
             ) from None
 
-    if not (spack_dir / "bin" / "spack").exists():
-        raise ConfigurationError(
-            f"the Spack directory '{spack_dir}' exists, but the executable 'bin/spack' could not be found"
-        )
+    @property
+    def arch(self):
+        """Get the Spack arch tuple"""
+        if self._arch is not None:
+            return self._arch
+
+        try:
+            command = [str(self._spack_path), "arch"]
+            ret = subprocess.run(
+                command, check=True, capture_output=True, encoding="utf-8"
+            )
+        except subprocess.CalledProcessError as exc:
+            raise CommandError(
+                "the Spack installation seems to be broken, calling 'spack help' failed",
+                " ".join(command),
+                exc.stdout,
+                exc.stderr,
+            ) from None
+
+        return ret.stdout.strip()
+
+    def install_env(self, envdir, features, omp, mpi):
+        """
+        Install cp2k@toolchain in the given Spack environment with the required features.
+        :param envdir: path where the Spack env should be created, resp. used
+        :param features: Spack spec for the cp2k package, like: +sirius ~cuda_fft
+        :param omp: Adds `+openmp` to the Spack spec if True, `~openmp` otherwise.
+        :param mpi: Adds `+mpi` to the Spack spec if True, `~mpi` otherwise.
+        """
+
+        spec = ["cp2k-deps"]
+        spec += ["+openmp"] if omp else ["~openmp"]
+        spec += ["+mpi"] if mpi else ["~mpi"]
+        spec += features  # TODO: validate features
+
+        if not envdir.exists():
+            envdir.mkdir(parents=True)
+
+        spack_yaml_path = envdir / "spack.yaml"
+        if not spack_yaml_path.exists():  # or should we always overwrite it?
+
+            print(
+                f"Creating environment configuration for '{' '.join(spec)}' in '{envdir}'"
+            )
+            spack_yaml_path.write_text(
+                f"""\
+    # This is a Spack Environment file.
+    #
+    # It describes a set of packages to be installed, along with
+    # configuration settings.
+    spack:
+      # add package specs to the `specs` list
+      specs: ["{" ".join(spec)}"]
+      repos: ["{SCRIPT_DIR}/repo"]
+    """,
+                encoding="utf-8",
+            )
+
+        print(f"Installing environment with '{' '.join(spec)}' in '{envdir}'")
+
+        try:
+            command = [
+                str(self._spack_path),
+                "install",
+            ]  # the install here pulls the spec from the env. config
+            # running Spack in the envdir will automatically enable the environment
+            # do not capture the output here to make sure the user sees something, because this takes long
+            subprocess.run(command, check=True, cwd=envdir, encoding="utf-8")
+        except subprocess.CalledProcessError as exc:
+            raise CommandError(
+                "could not create the Spack environment at '{}'".format(envdir),
+                " ".join(command),
+                "",
+                "",
+            ) from None
 
 
-def check_spack(spack_path=SPACK_PATH):
-    """Check that the executable on the given path runs"""
-    try:
-        command = [str(spack_path), "help"]
-        subprocess.run(command, check=True, capture_output=True, encoding="utf-8")
-    except subprocess.CalledProcessError as exc:
-        raise CommandError(
-            "the Spack installation seems to be broken, calling 'spack help' failed",
-            " ".join(command),
-            exc.stdout,
-            exc.stderr,
-        ) from None
-
-
-def get_spack_arch(spack_path=SPACK_PATH):
-    """Get the Spack arch tuple"""
-    try:
-        command = [str(spack_path), "arch"]
-        ret = subprocess.run(command, check=True, capture_output=True, encoding="utf-8")
-    except subprocess.CalledProcessError as exc:
-        raise CommandError(
-            "the Spack installation seems to be broken, calling 'spack help' failed",
-            " ".join(command),
-            exc.stdout,
-            exc.stderr,
-        ) from None
-
-    return ret.stdout.strip()
-
-
-def install_spack_env(envdir, features, omp, mpi, spack_path=SPACK_PATH):
-    """
-    Install cp2k@toolchain in the given Spack environment with the required features.
-    :param envdir: path where the Spack env should be created, resp. used
-    :param features: Spack spec for the cp2k package, like: +sirius ~cuda_fft
-    :param omp: Adds `+openmp` to the Spack spec if True, `~openmp` otherwise.
-    :param mpi: Adds `+mpi` to the Spack spec if True, `~mpi` otherwise.
-    :param spack_path: Path to the Spack binary to be used
-    """
-
-    spec = ["cp2k-deps"]
-    spec += ["+openmp"] if omp else ["~openmp"]
-    spec += ["+mpi"] if mpi else ["~mpi"]
-    spec += features  # TODO: validate features
-
-    if not envdir.exists():
-        envdir.mkdir(parents=True)
-
-    spack_yaml_path = envdir / "spack.yaml"
-    if not spack_yaml_path.exists():  # or should we always overwrite it?
-
-        print(
-            f"Creating environment configuration for '{' '.join(spec)}' in '{envdir}'"
-        )
-        spack_yaml_path.write_text(
-            f"""\
-# This is a Spack Environment file.
-#
-# It describes a set of packages to be installed, along with
-# configuration settings.
-spack:
-  # add package specs to the `specs` list
-  specs: ["{" ".join(spec)}"]
-  repos: ["{SCRIPT_DIR}/repo"]
-""",
-            encoding="utf-8",
-        )
-
-    print(f"Installing environment with '{' '.join(spec)}' in '{envdir}'")
-
-    try:
-        command = [
-            str(spack_path),
-            "install",
-        ]  # the install here pulls the spec from the env. config
-        # running Spack in the envdir will automatically enable the environment
-        # do not capture the output here to make sure the user sees something, because this takes long
-        subprocess.run(command, check=True, cwd=envdir, encoding="utf-8")
-    except subprocess.CalledProcessError as exc:
-        raise CommandError(
-            "could not create the Spack environment at '{}'".format(envdir),
-            " ".join(command),
-            "",
-            "",
-        ) from None
-
-
-def setup_arch_symlink(arch_dir, spack_arch, spack_env_dir, spack_env):
+def setup_arch_symlink(arch_dir, spack_env_dir, spack_env):
     """TODO: needs some improvement"""
-    symdest = arch_dir / f"{spack_arch}.{spack_env}"
     symtarget = (
-        spack_env_dir
-        / f"{spack_env}"
-        / ".spack-env"
-        / "view"
-        / "share"
-        / "data"
-        / f"{spack_arch}-gcc.{spack_env}"
-    )
+        spack_env_dir / f"{spack_env}" / ".spack-env" / "view" / "share" / "data"
+    ).glob(f"*.{spack_env}")
+
+    symtarget = list(symtarget)[0]  # only one file there
+
+    symdest = arch_dir / symtarget.name
 
     if symdest.exists():
         symdest.unlink()
@@ -166,7 +173,7 @@ def setup_arch_symlink(arch_dir, spack_arch, spack_env_dir, spack_env):
 
 
 def install():
-    """The basic entrypoint for this script"""
+    """The base entrypoint for this script"""
     parser = argparse.ArgumentParser(
         description="Generate a Spack environment configuration for the desired CP2K configuration",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -189,8 +196,10 @@ def install():
     args = parser.parse_args()
 
     try:
-        ensure_spack_installation()
-        check_spack()  # TODO: give the user the possibility to use an already installed spack
+        SpackCmd.ensure_installation()
+
+        spack = SpackCmd()
+        spack.check()  # TODO: give the user the possibility to use an already installed spack
 
         spec = args.features.copy()
 
@@ -205,23 +214,21 @@ def install():
         if not arch_dir.exists():
             arch_dir.mkdir()
 
-        spack_arch = get_spack_arch()
-
         # this is the default environment and always gets built
-        install_spack_env(SCRIPT_DIR / "envs" / "sopt", spec, omp=False, mpi=False)
-        setup_arch_symlink(arch_dir, spack_arch, SCRIPT_DIR / "envs", "sopt")
+        spack.install_env(SCRIPT_DIR / "envs" / "sopt", spec, omp=False, mpi=False)
+        setup_arch_symlink(arch_dir, SCRIPT_DIR / "envs", "sopt")
 
         if args.openmp:
-            install_spack_env(SCRIPT_DIR / "envs" / "ssmp", spec, omp=True, mpi=False)
-            setup_arch_symlink(arch_dir, spack_arch, SCRIPT_DIR / "envs", "ssmp")
+            spack.install_env(SCRIPT_DIR / "envs" / "ssmp", spec, omp=True, mpi=False)
+            setup_arch_symlink(arch_dir, SCRIPT_DIR / "envs", "ssmp")
 
         if args.mpi:
-            install_spack_env(SCRIPT_DIR / "envs" / "popt", spec, omp=False, mpi=True)
-            setup_arch_symlink(arch_dir, spack_arch, SCRIPT_DIR / "envs", "popt")
+            spack.install_env(SCRIPT_DIR / "envs" / "popt", spec, omp=False, mpi=True)
+            setup_arch_symlink(arch_dir, SCRIPT_DIR / "envs", "popt")
 
         if args.mpi and args.openmp:
-            install_spack_env(SCRIPT_DIR / "envs" / "psmp", spec, omp=True, mpi=True)
-            setup_arch_symlink(arch_dir, spack_arch, SCRIPT_DIR / "envs", "psmp")
+            spack.install_env(SCRIPT_DIR / "envs" / "psmp", spec, omp=True, mpi=True)
+            setup_arch_symlink(arch_dir, SCRIPT_DIR / "envs", "psmp")
 
     except CommandError as exc:
         print(
