@@ -161,6 +161,31 @@ spack:
                 "",
             ) from None
 
+        try:
+            command = [
+                str(self._spack_path),
+                "env",
+                "activate",
+                "--sh",
+                "--dir",
+                ".",
+            ]
+            ret = subprocess.run(
+                command, check=True, cwd=envdir, encoding="utf-8", capture_output=True
+            )
+        except subprocess.CalledProcessError as exc:
+            raise CommandError(
+                "getting environment activation failed for environment '{}'".format(
+                    envdir
+                ),
+                " ".join(command),
+                exc.stdout,
+                exc.stderr,
+            ) from None
+
+        with (envdir / "sh.env").open("w", encoding="utf-8") as fhandle:
+            fhandle.write(ret.stdout)
+
 
 def copy_arch_file(arch_dir, spack_env_dir, spack_env):
 
@@ -172,8 +197,6 @@ def copy_arch_file(arch_dir, spack_env_dir, spack_env):
 
     dest = arch_dir / source.name
 
-    pkgconfig_paths = ":".join(str(p) for p in view_dir.glob("lib*/pkgconfig"))
-
     print(f"Extracting arch file from Spack environment '{spack_env}' to '{dest}'")
 
     with source.open("r", encoding="utf-8") as orig, dest.open(
@@ -184,12 +207,6 @@ def copy_arch_file(arch_dir, spack_env_dir, spack_env):
             # filter out the DATA_DIR spec, leave that to the user
             if line.startswith("DATA_DIR"):
                 continue
-
-            # make sure shell calls inside the Makefile use the prober environment
-            line = line.replace(
-                "shell",
-                f"shell PATH='{view_dir / 'bin'}:$(PATH)' PKG_CONFIG_PATH='{pkgconfig_paths}'",
-            )
 
             out.write(line)
 
@@ -285,6 +302,20 @@ def install():
     except ConfigurationError as exc:
         print(f"ERROR: {exc.args[0]}")
         sys.exit(1)
+
+    print(
+        f"""Building toolchain succeeded.
+
+To build CP2K, copy the respective arch file from {arch_dir} to your cp2k/arch directory
+and then run:
+
+    source {SCRIPT_DIR / "envs" / "sopt" / "sh.env"}
+    make ARCH=... VERSION=sopt
+
+... replace 'sopt' with the version you want to build
+    and set ARCH to match the architecture of the generated arch/ files.
+"""
+    )
 
 
 if __name__ == "__main__":
