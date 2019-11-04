@@ -18,6 +18,43 @@ Disadvantages over the existing toolchain:
 * Python 3.7+
 * git
 
+## Usage
+
+```console
+$ git clone https://github.com/cp2k/cp2k-toolchain.git
+$ cd cp2k-toolchain
+$ ./install.py  # this takes some time and will by default build environments for sopt/popt/ssmp/psmp
+$ ls arch/  # list generated arch files
+```
+
+To get the full list of options:
+
+```console
+$ ./install.py --help
+usage: install.py [-h] [--openmp | --no-openmp] [--mpi | --no-mpi]
+                  [--spack-dir <path-to-spack-dir>]
+                  [<feature> [<feature> ...]]
+
+Generate a Spack environment configuration for the desired CP2K configuration
+
+positional arguments:
+  <feature>             a CP2K feature. ex.: +cuda ~sirius, passed down to
+                        Spack (default: None)
+
+optional arguments:
+  -h, --help            show this help message and exit
+  --openmp              Whether to build ssmp/psmp environments (default:
+                        True)
+  --no-openmp
+  --mpi                 Whether to build popt/psmp environments (default:
+                        True)
+  --no-mpi
+  --spack-dir <path-to-spack-dir>
+                        Path to the Spack environment. If it doesn't exist, a
+                        new Spack environment will be fetched there (needs
+                        Git). (default: /data/tiziano/cp2k-toolchain/spack)
+```
+
 ## TODOs
 
 * [x] generate CP2K `arch/` files. Ideal would be if they could activate the corresponding environment automatically.
