@@ -41,6 +41,8 @@ class SpackCmd:
         """Fetch Spack if required and check whether the checkout is ok"""
 
         if not spack_dir.exists():
+            print(f"Setting up new Spack installation to '{spack_dir}'")
+
             # need Git for now
             try:
                 command = [
@@ -211,6 +213,13 @@ def install():
     argparse_add_bool_arg(
         parser, "mpi", True, "Whether to build popt/psmp environments"
     )
+    parser.add_argument(
+        "--spack-dir",
+        metavar="<path-to-spack-dir>",
+        help="Path to the Spack environment. If it doesn't exist, a new Spack environment will be fetched there (needs Git).",
+        default=SPACK_DIR,
+        type=lambda p: pathlib.Path.cwd() / p,
+    )
 
     parser.add_argument(
         "features",
@@ -223,10 +232,10 @@ def install():
     args = parser.parse_args()
 
     try:
-        SpackCmd.ensure_installation()
+        SpackCmd.ensure_installation(args.spack_dir)
 
-        spack = SpackCmd()
-        spack.check()  # TODO: give the user the possibility to use an already installed spack
+        spack = SpackCmd(args.spack_dir / "bin" / "spack")
+        spack.check()
 
         spec = args.features.copy()
 

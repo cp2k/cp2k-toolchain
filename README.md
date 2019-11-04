@@ -20,12 +20,12 @@ Disadvantages over the existing toolchain:
 
 ## TODOs
 
-* [ ] generate CP2K `arch/` files. Ideal would be if they could activate the corresponding environment automatically.
+* [x] generate CP2K `arch/` files. Ideal would be if they could activate the corresponding environment automatically.
       In this case we could get away with using simple `$(shell pkg-config --libs libxc ...)` for most dependencies.
 * [ ] implement simple way to make Spack use system-provided MPI
 * [ ] implement simple way to make Spack use different system compiler
 * [ ] implement simple way to override packages with pre-install packages
-* [ ] query compiler from Spack for using in `arch/` file
+* [x] query compiler from Spack for using in `arch/` file
 
 ## Design
 
