@@ -10,3 +10,5 @@
   hooks:
   - id: black
     additional_dependencies: ["flake8-bugbear"]
+    # Spack pkgs follow a slightly different style
+    exclude: ^repo

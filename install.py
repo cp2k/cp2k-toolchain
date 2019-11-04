@@ -109,10 +109,14 @@ class SpackCmd:
         :param mpi: Adds `+mpi` to the Spack spec if True, `~mpi` otherwise.
         """
 
-        spec = ["cp2k-deps"]
-        spec += ["+openmp"] if omp else ["~openmp"]
-        spec += ["+mpi"] if mpi else ["~mpi"]
-        spec += features  # TODO: validate features
+        cp2k_spec = ["cp2k-deps"]
+        cp2k_spec += ["+openmp"] if omp else ["~openmp"]
+        cp2k_spec += ["+mpi"] if mpi else ["~mpi"]
+        cp2k_spec += features  # TODO: validate features
+
+        # pkgconf is build-time dep for CP2K and would not end up
+        # in the environment unless explictly mentioned
+        spec = ["pkgconf", " ".join(cp2k_spec)]
 
         if not envdir.exists():
             envdir.mkdir(parents=True)
@@ -121,19 +125,19 @@ class SpackCmd:
         if not spack_yaml_path.exists():  # or should we always overwrite it?
 
             print(
-                f"Creating environment configuration for '{' '.join(spec)}' in '{envdir}'"
+                f"Creating environment configuration for '{' '.join(cp2k_spec)}' in '{envdir}'"
             )
             spack_yaml_path.write_text(
                 f"""\
-    # This is a Spack Environment file.
-    #
-    # It describes a set of packages to be installed, along with
-    # configuration settings.
-    spack:
-      # add package specs to the `specs` list
-      specs: ["{" ".join(spec)}"]
-      repos: ["{SCRIPT_DIR}/repo"]
-    """,
+# This is a Spack Environment file.
+#
+# It describes a set of packages to be installed, along with
+# configuration settings.
+spack:
+  # add package specs to the `specs` list
+  specs: [{", ".join(spec)}]
+  repos: [{SCRIPT_DIR}/repo]
+""",
                 encoding="utf-8",
             )
 
@@ -156,20 +160,43 @@ class SpackCmd:
             ) from None
 
 
-def setup_arch_symlink(arch_dir, spack_env_dir, spack_env):
-    """TODO: needs some improvement"""
-    symtarget = (
-        spack_env_dir / f"{spack_env}" / ".spack-env" / "view" / "share" / "data"
-    ).glob(f"*.{spack_env}")
+def copy_arch_file(arch_dir, spack_env_dir, spack_env):
 
-    symtarget = list(symtarget)[0]  # only one file there
+    view_dir = spack_env_dir / f"{spack_env}" / ".spack-env" / "view"
 
-    symdest = arch_dir / symtarget.name
+    source = next(
+        (view_dir / "share" / "data").glob(f"*.{spack_env}")  # only one file here
+    )
 
-    if symdest.exists():
-        symdest.unlink()
+    dest = arch_dir / source.name
 
-    symdest.symlink_to(symtarget)
+    pkgconfig_paths = ":".join(str(p) for p in view_dir.glob("lib*/pkgconfig"))
+
+    print(f"Extracting arch file from Spack environment '{spack_env}' to '{dest}'")
+
+    with source.open("r", encoding="utf-8") as orig, dest.open(
+        "w", encoding="utf-8"
+    ) as out:
+        # copy the Spack-generated input file with some modifications
+        for line in orig:
+            # filter out the DATA_DIR spec, leave that to the user
+            if line.startswith("DATA_DIR"):
+                continue
+
+            # make sure shell calls inside the Makefile use the prober environment
+            line = line.replace(
+                "shell",
+                f"shell PATH='{view_dir / 'bin'}:$(PATH)' PKG_CONFIG_PATH='{pkgconfig_paths}'",
+            )
+
+            out.write(line)
+
+    # a different way could be to either generate the arch files completely ourselves,
+    # or modify the arch-file generation in the Spack cp2k-deps package
+    # The advantage of the first alternative is that we could use the Spack environment paths
+    # instead of the direct package paths which would make the arch-file cleaner and
+    # the arch file would likely not change if the environment gets updated.
+    # The latter would avoid replicating existing logic in here.
 
 
 def install():
@@ -216,19 +243,19 @@ def install():
 
         # this is the default environment and always gets built
         spack.install_env(SCRIPT_DIR / "envs" / "sopt", spec, omp=False, mpi=False)
-        setup_arch_symlink(arch_dir, SCRIPT_DIR / "envs", "sopt")
+        copy_arch_file(arch_dir, SCRIPT_DIR / "envs", "sopt")
 
         if args.openmp:
             spack.install_env(SCRIPT_DIR / "envs" / "ssmp", spec, omp=True, mpi=False)
-            setup_arch_symlink(arch_dir, SCRIPT_DIR / "envs", "ssmp")
+            copy_arch_file(arch_dir, SCRIPT_DIR / "envs", "ssmp")
 
         if args.mpi:
             spack.install_env(SCRIPT_DIR / "envs" / "popt", spec, omp=False, mpi=True)
-            setup_arch_symlink(arch_dir, SCRIPT_DIR / "envs", "popt")
+            copy_arch_file(arch_dir, SCRIPT_DIR / "envs", "popt")
 
         if args.mpi and args.openmp:
             spack.install_env(SCRIPT_DIR / "envs" / "psmp", spec, omp=True, mpi=True)
-            setup_arch_symlink(arch_dir, SCRIPT_DIR / "envs", "psmp")
+            copy_arch_file(arch_dir, SCRIPT_DIR / "envs", "psmp")
 
     except CommandError as exc:
         print(

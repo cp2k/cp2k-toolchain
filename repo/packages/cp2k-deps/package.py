@@ -8,7 +8,6 @@ import os.path
 import copy
 
 import spack.util.environment
-import spack.fetch_strategy
 
 
 class Cp2kDeps(MakefilePackage, CudaPackage):
@@ -17,8 +16,10 @@ class Cp2kDeps(MakefilePackage, CudaPackage):
     periodic, material, crystal, and biological systems
     """
     homepage = 'https://www.cp2k.org'
+    url = 'https://github.com/cp2k/cp2k/releases/download/v3.0.0/cp2k-3.0.tar.bz2'
+    git = 'https://github.com/cp2k/cp2k.git'
     list_url = 'https://github.com/cp2k/cp2k/releases'
-    url = 'https://github.com/cp2k/cp2k/releases/'
+
     has_code = False
 
     version('7.0')
@@ -161,7 +162,6 @@ class Cp2kDeps(MakefilePackage, CudaPackage):
         return makefile_basename
 
     def edit(self, spec, prefix):
-        pkgconfig = which('pkg-config')
 
         fftw = spec['fftw:openmp' if '+openmp' in spec else 'fftw']
 
@@ -242,8 +242,8 @@ class Cp2kDeps(MakefilePackage, CudaPackage):
                 os.path.join(spec['libint'].libs.directories[0], 'libint.a'),
             ])
         else:
-            fcflags += [pkgconfig('--cflags', 'libint2', output=str)]
-            libs += [pkgconfig('--libs', 'libint2', output=str)]
+            fcflags += ['$(shell pkg-config --cflags libint2)']
+            libs += ['$(shell pkg-config --libs libint2)']
 
         if '+plumed' in self.spec:
             dflags.extend(['-D__PLUMED2'])
@@ -310,8 +310,8 @@ class Cp2kDeps(MakefilePackage, CudaPackage):
                 ldflags.append(libxc.libs.search_flags)
                 libs.append(str(libxc.libs))
             else:
-                fcflags += [pkgconfig('--cflags', 'libxcf03', output=str)]
-                libs += [pkgconfig('--libs', 'libxcf03', output=str)]
+                fcflags += ['$(shell pkg-config --cflags libxcf03)']
+                libs += ['$(shell pkg-config --libs libxcf03)']
 
         if '+pexsi' in self.spec:
             cppflags.append('-D__LIBPEXSI')
@@ -411,10 +411,10 @@ class Cp2kDeps(MakefilePackage, CudaPackage):
         elif 'smm=libxsmm' in spec:
             cppflags.extend([
                 '-D__LIBXSMM',
-                pkgconfig('--cflags-only-other', 'libxsmmf', output=str),
+                '$(shell pkg-config --cflags-only-other libxsmmf)',
             ])
-            fcflags.append(pkgconfig('--cflags-only-I', 'libxsmmf', output=str))
-            libs.append(pkgconfig('--libs', 'libxsmmf', output=str))
+            fcflags.append('$(shell pkg-config --cflags-only-I libxsmmf)')
+            libs.append('$(shell pkg-config --libs libxsmmf)')
 
         dflags.extend(cppflags)
         cflags.extend(cppflags)
