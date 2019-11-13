@@ -62,33 +62,29 @@ optional arguments:
 * [ ] implement simple way to make Spack use system-provided MPI
 * [ ] implement simple way to make Spack use different system compiler
 * [ ] implement simple way to override packages with pre-install packages
-* [x] query compiler from Spack for using in `arch/` file
+* [ ] figure out how to automatically set `RPATH` when building CP2K with the generated `arch/` file to avoid having to load the environment just to run CP2K
 
 ## Design
 
 * CP2K has 4 main configurations: `sopt`, `popt`, `ssmp`, `psmp`.
-  Basically the cross-product of with/without-OpenMP and with/without-MPI
-  We're following this by building a maximum of 4 Spack environments,
-  depending on whether the user wants OpenMP or MPI.
-  If the user disables OpenMP and MPI, he will only get a `sopt` environment.
+  Basically the cross-product of with/without-OpenMP and with/without-MPI.
+  We're following this by building a maximum of 4 Spack environments (since
+  Spack by default would only build **one** specific variant),
+  depending on whether the user wants OpenMP, or MPI.
+  If the user disables both OpenMP and MPI, he will only get a `sopt` environment,
+  if she disables MPI, the scripts will only build environments for `sopt` and `ssmp`.
 * We're using one Spack installation, meaning that packages shared between the
-  environments will be built only once.
-* Spack only builds the required packages, not CP2K itself
-* <s>To re-use the complex build requirements even at the top-level of dependencies,
-  we are installing the dependencies by using Spack's "recipe" for building CP2K.
-  Ex.:
-
-      spack install --only dependencies cp2k +openmp ~mpi ~sirius
-
-  Should we have to override Spack's CP2K package (for new packages or  we can provide a custom repository
-  to override it. There is also the possibility to limit ourselves to a specific version/tag
-  of Spack for releases.</s>
-  Unfortunately only install dependencies leaves the environment in a rather peculiar state:
-  While the dependencies are correctly installed the `spec` contained says `cp2k` which means that a
-  `spack install` in that dir will then install the CP2K package itself and other commands like `spack env loads`
-  fail because the `cp2k` is not yet available. Therefore:
-* We provide a repository overlay registered in each environment which contains a stripped-down version of
+  environments will be built only once if their configuration is compatible.
+  This is entirely left to Spack.
+* Spack only builds the required packages, not CP2K itself. There are two ways for this:
+  Specify the required dependencies explicitly in the respective environment configuration
+  (`spack.yaml`), which would mean to replicate to some extend the dependency-logic already
+  contained in the Spack CP2K package, or to use a custom Spack package which only contains
+  the dependency (and `arch/`-file generation) part of the Spack CP2K package.
+* We therefore provide a repository overlay registered in each environment which contains a stripped-down version of
   the Spack CP2K package called `cp2k-deps`. This should be kept in sync with Spack CP2K package wrt to
   dependency specification and `arch/` file generation. The difference to the `cp2k` package is that this
   package does not pull any sources and only installs an `arch/` file. This way we can even re-use the `arch/`
   file generation already done in Spack.
+* Building and running **one** CP2K `VERSION` currently requires the activation of the corresponding Spack environment.
+  Reason why the Spack environment is required to be loaded for compilation is the usage of `pkg-config`. At runtime the environment must be loaded because the `RPATH` is not set (and the linker loader would not find the libraries)
